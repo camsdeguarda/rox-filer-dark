@@ -1,4 +1,15 @@
-# Ignore emacs backup files
+# Build files and directories
+build/
+*.o
+*.a
+*.so
+*.exe
+config.log
+config.status
+config.h
+
+# Editor and system files
 *~
-# and the generated manual page
-rox.1
+.DS_Store
+*.swp
+*.swo
