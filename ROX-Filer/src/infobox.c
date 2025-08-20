@@ -1074,9 +1074,6 @@ static const gchar *pretty_type(DirItem *file, const guchar *path)
 	if (file->flags & ITEM_FLAG_SYMLINK)
 		return _("Symbolic link");
 
-	if (file->flags & ITEM_FLAG_APPDIR)
-		return _("ROX application");
-
 	if (file->flags & ITEM_FLAG_MOUNT_POINT)
 	{
 		MountPoint *mp;

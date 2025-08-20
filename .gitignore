@@ -13,3 +13,6 @@ config.h
 .DS_Store
 *.swp
 *.swo
+*.vim
+ROX-Filer/ROX-Filer.dbg
+ROX-Filer/ROX-Filer

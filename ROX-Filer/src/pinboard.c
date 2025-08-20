@@ -702,33 +702,6 @@ static void pinboard_wink_item(PinIcon *pi, gboolean timeout)
  */
 void pinboard_set_backdrop_app(const gchar *app)
 {
-	XMLwrapper *ai;
-	DirItem *item;
-	gboolean can_set;
-
-	item = diritem_new("");
-	diritem_restat(app, item, NULL);
-	if (!(item->flags & ITEM_FLAG_APPDIR))
-	{
-		delayed_error(_("The backdrop handler must be an application "
-				"directory. Drag an application directory "
-				"into the Set Backdrop dialog box, or (for "
-				"programmers) pass it to the SOAP "
-				"SetBackdropApp method."));
-		diritem_free(item);
-		return;
-	}
-	
-	ai = appinfo_get(app, item);
-	diritem_free(item);
-
-	can_set = ai && xml_get_section(ai, ROX_NS, "CanSetBackdrop") != NULL;
-	if (ai)
-		g_object_unref(ai);
-
-	if (can_set)
-		pinboard_set_backdrop(app, BACKDROP_PROGRAM);
-	else
 		delayed_error(_("You can only set the backdrop to an image "
 				"or to a program which knows how to "
 				"manage ROX-Filer's backdrop.\n\n"
@@ -963,12 +936,10 @@ static void pinboard_check_options(void)
 {
 	GdkColor	n_fg, n_bg, n_shadow;
 
-#ifdef FORCE_DARK_THEME
-	/* Force dark theme colors for pinboard - override whatever was loaded */
-	SET_OPTION_COLOR(o_pinboard_fg_colour, COLOR_PINBOARD_FG);
-	SET_OPTION_COLOR(o_pinboard_bg_colour, COLOR_PINBOARD_BG);
-	SET_OPTION_COLOR(o_pinboard_shadow_colour, COLOR_PINBOARD_SHADOW);
-#endif
+    /* Always force dark theme colors for pinboard */
+    strcpy(o_pinboard_fg_colour.value, COLOR_PINBOARD_FG);
+    strcpy(o_pinboard_bg_colour.value, COLOR_PINBOARD_BG);
+    strcpy(o_pinboard_shadow_colour.value, COLOR_PINBOARD_SHADOW);
 
 	gdk_color_parse(o_pinboard_fg_colour.value, &n_fg);
 	gdk_color_parse(o_pinboard_bg_colour.value, &n_bg);

@@ -391,14 +391,9 @@ static void build_app_menu(const char *app_dir, DirItem *app_item)
 	}
 	else
 	{
-		if (app_item->flags & ITEM_FLAG_APPDIR)
-			node = NULL;
-		else
-		{
-			/* Not an application AND no AppInfo */
-			build_menu_for_type(app_item->mime_type);
-			return;
-		}
+            /* Not an application AND no AppInfo */
+        build_menu_for_type(app_item->mime_type);
+        return;
 	}
 
 	/* Add the menu entries */

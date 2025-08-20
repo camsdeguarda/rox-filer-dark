@@ -127,7 +127,6 @@ static void revert_options(GtkWidget *widget, gpointer data);
 static void build_options_window(void);
 static GtkWidget *build_window_frame(GtkTreeView **tree_view);
 static void update_option_widgets(void);
-static void button_patch_set_colour(GtkWidget *button, GdkColor *color);
 static void option_add(Option *option, const gchar *key);
 static void set_not_changed(gpointer key, gpointer value, gpointer data);
 static void load_options(xmlDoc *doc);
@@ -446,120 +445,6 @@ static void option_add(Option *option, const gchar *key)
 	}
 }
 
-static GtkColorSelectionDialog *current_csel_box = NULL;
-static GtkFontSelectionDialog *current_fontsel_box = NULL;
-
-static void get_new_colour(GtkWidget *ok, Option *option)
-{
-	GtkWidget	*csel;
-	GdkColor	c;
-
-	g_return_if_fail(current_csel_box != NULL);
-
-	csel = current_csel_box->colorsel;
-
-	gtk_color_selection_get_current_color(GTK_COLOR_SELECTION(csel), &c);
-
-	button_patch_set_colour(option->widget, &c);
-	
-	gtk_widget_destroy(GTK_WIDGET(current_csel_box));
-
-	option_check_widget(option);
-}
-
-static void open_coloursel(GtkWidget *button, Option *option)
-{
-	GtkColorSelectionDialog	*csel;
-	GtkWidget		*dialog, *patch;
-
-	if (current_csel_box)
-		gtk_widget_destroy(GTK_WIDGET(current_csel_box));
-
-	dialog = gtk_color_selection_dialog_new(NULL);
-	csel = GTK_COLOR_SELECTION_DIALOG(dialog);
-	current_csel_box = csel;
-	gtk_window_set_position(GTK_WINDOW(csel), GTK_WIN_POS_MOUSE);
-
-	g_signal_connect(dialog, "destroy",
-			G_CALLBACK(gtk_widget_destroyed), &current_csel_box);
-	gtk_widget_hide(csel->help_button);
-	g_signal_connect_swapped(csel->cancel_button, "clicked",
-			G_CALLBACK(gtk_widget_destroy), dialog);
-	g_signal_connect(csel->ok_button, "clicked",
-			G_CALLBACK(get_new_colour), option);
-
-	patch = GTK_BIN(button)->child;
-
-	gtk_color_selection_set_current_color(
-			GTK_COLOR_SELECTION(csel->colorsel),
-			&patch->style->bg[GTK_STATE_NORMAL]);
-
-	gtk_widget_show(dialog);
-}
-
-static void font_chosen(GtkWidget *dialog, gint response, Option *option)
-{
-	gchar *font;
-
-	if (response != GTK_RESPONSE_OK)
-		goto out;
-
-	font = gtk_font_selection_dialog_get_font_name(
-					GTK_FONT_SELECTION_DIALOG(dialog));
-
-	gtk_label_set_text(GTK_LABEL(option->widget), font);
-
-	g_free(font);
-
-	option_check_widget(option);
-
-out:
-	gtk_widget_destroy(dialog);
-
-}
-
-static void toggle_active_font(GtkToggleButton *toggle, Option *option)
-{
-	if (current_fontsel_box)
-		gtk_widget_destroy(GTK_WIDGET(current_fontsel_box));
-
-	if (gtk_toggle_button_get_active(toggle))
-	{
-		gtk_widget_set_sensitive(option->widget->parent, TRUE);
-		gtk_label_set_text(GTK_LABEL(option->widget), "Sans 12");
-	}
-	else
-	{
-		gtk_widget_set_sensitive(option->widget->parent, FALSE);
-		gtk_label_set_text(GTK_LABEL(option->widget),
-				   _("(use default)"));
-	}
-
-	option_check_widget(option);
-}
-
-static void open_fontsel(GtkWidget *button, Option *option)
-{
-	if (current_fontsel_box)
-		gtk_widget_destroy(GTK_WIDGET(current_fontsel_box));
-
-	current_fontsel_box = GTK_FONT_SELECTION_DIALOG(
-				gtk_font_selection_dialog_new(PROJECT));
-
-	gtk_window_set_position(GTK_WINDOW(current_fontsel_box),
-				GTK_WIN_POS_MOUSE);
-
-	g_signal_connect(current_fontsel_box, "destroy",
-			G_CALLBACK(gtk_widget_destroyed), &current_fontsel_box);
-
-	gtk_font_selection_dialog_set_font_name(current_fontsel_box,
-						option->value);
-
-	g_signal_connect(current_fontsel_box, "response",
-			G_CALLBACK(font_chosen), option);
-
-	gtk_widget_show(GTK_WIDGET(current_fontsel_box));
-}
 
 /* These are used during parsing... */
 static xmlDocPtr options_doc = NULL;
@@ -842,11 +727,6 @@ static void null_widget(gpointer key, gpointer value, gpointer data)
 
 static void options_destroyed(GtkWidget *widget, gpointer data)
 {
-	if (current_csel_box)
-		gtk_widget_destroy(GTK_WIDGET(current_csel_box));
-	if (current_fontsel_box)
-		gtk_widget_destroy(GTK_WIDGET(current_fontsel_box));
-
 	revert_widget = NULL;
 
 	if (check_anything_changed())
@@ -1238,32 +1118,6 @@ static void update_menu(Option *option)
 	option_menu_set(GTK_OPTION_MENU(option->widget), option->value);
 }
 
-static void update_font(Option *option)
-{
-	GtkToggleButton *active;
-	gboolean have_font = option->value[0] != '\0';
-
-	active = g_object_get_data(G_OBJECT(option->widget), "rox_override");
-
-	if (active)
-	{
-		gtk_toggle_button_set_active(active, have_font);
-		gtk_widget_set_sensitive(option->widget->parent, have_font);
-	}
-	
-	gtk_label_set_text(GTK_LABEL(option->widget),
-			   have_font ? option->value
-				     : (guchar *) _("(use default)"));
-}
-
-static void update_colour(Option *option)
-{
-	GdkColor colour;
-
-	gdk_color_parse(option->value, &colour);
-	button_patch_set_colour(option->widget, &colour);
-}
-
 /* Each of these read_* calls get the new (string) value of an option
  * from the widget.
  */
@@ -1616,36 +1470,37 @@ static GList *build_radio_group(Option *option, xmlNode *node, guchar *label)
 	return list;
 }
 
+static void update_colour_label(Option *option)
+{
+    gtk_label_set_text(GTK_LABEL(option->widget), option->value);
+}
+
+static guchar *read_colour_label(Option *option)
+{
+    return g_strdup(gtk_label_get_text(GTK_LABEL(option->widget)));
+}
+
 static GList *build_colour(Option *option, xmlNode *node, guchar *label)
 {
-	GtkWidget	*hbox, *da, *button, *label_wid;
-	
-	g_return_val_if_fail(option != NULL, NULL);
-
-	hbox = gtk_hbox_new(FALSE, 4);
-
-	if (label)
-	{
-		label_wid = gtk_label_new(_(label));
-		gtk_misc_set_alignment(GTK_MISC(label_wid), 1.0, 0.5);
-		gtk_box_pack_start(GTK_BOX(hbox), label_wid, TRUE, TRUE, 0);
-	}
-
-	button = gtk_button_new();
-	da = gtk_drawing_area_new();
-	gtk_widget_set_size_request(da, 64, 12);
-	gtk_container_add(GTK_CONTAINER(button), da);
-	g_signal_connect(button, "clicked", G_CALLBACK(open_coloursel), option);
-
-	may_add_tip(button, node);
-	
-	gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, TRUE, 0);
-
-	option->update_widget = update_colour;
-	option->read_widget = read_colour;
-	option->widget = button;
-
-	return g_list_append(NULL, hbox);
+    GtkWidget *hbox, *label_widget, *color_label;
+    
+    g_return_val_if_fail(option != NULL, NULL);
+    
+    hbox = gtk_hbox_new(FALSE, 4);
+    
+    label_widget = gtk_label_new(_(label));
+    gtk_misc_set_alignment(GTK_MISC(label_widget), 1.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(hbox), label_widget, TRUE, TRUE, 0);
+    
+    /* Just show the current color value as text - no picker */
+    color_label = gtk_label_new(option->value);
+    gtk_box_pack_start(GTK_BOX(hbox), color_label, FALSE, TRUE, 0);
+    
+    option->widget = color_label;
+    option->update_widget = update_colour_label;
+    option->read_widget = read_colour_label;
+    
+    return g_list_append(NULL, hbox);
 }
 
 static GList *build_menu(Option *option, xmlNode *node, guchar *label)
@@ -1687,63 +1542,41 @@ static GList *build_menu(Option *option, xmlNode *node, guchar *label)
 	return g_list_append(NULL, hbox);
 }
 
-static GList *build_font(Option *option, xmlNode *node, guchar *label)
+static void update_font_label(Option *option)
 {
-	GtkWidget	*hbox, *button;
-	GtkWidget	*active = NULL;
-	int		override;
-
-	g_return_val_if_fail(option != NULL, NULL);
-
-	override = get_int(node, "override");
-
-	hbox = gtk_hbox_new(FALSE, 4);
-
-	if (override)
-	{
-		/* Add a check button to enable the font chooser. If off,
-		 * the option's value is "".
-		 */
-		active = gtk_check_button_new_with_label(_(label));
-		gtk_box_pack_start(GTK_BOX(hbox), active, FALSE, TRUE, 0);
-		g_signal_connect(active, "toggled",
-				 G_CALLBACK(toggle_active_font), option);
-	}
-	else
-		gtk_box_pack_start(GTK_BOX(hbox), gtk_label_new(_(label)),
-				FALSE, TRUE, 0);
-
-	button = gtk_button_new_with_label("");
-	gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, TRUE, 0);
-
-	option->update_widget = update_font;
-	option->read_widget = read_font;
-	option->widget = GTK_BIN(button)->child;
-	may_add_tip(button, node);
-
-	g_object_set_data(G_OBJECT(option->widget), "rox_override", active);
-
-	g_signal_connect(button, "clicked", G_CALLBACK(open_fontsel), option);
-
-	return g_list_append(NULL, hbox);
+    gtk_label_set_text(GTK_LABEL(option->widget), 
+                       option->value[0] ? (gchar *)option->value : _("(default)"));
 }
 
-static void button_patch_set_colour(GtkWidget *button, GdkColor *colour)
+static guchar *read_font_label(Option *option)
 {
-	GtkStyle   	*style;
-	GtkWidget	*patch;
+    const gchar *text = gtk_label_get_text(GTK_LABEL(option->widget));
+    if (strcmp(text, _("(default)")) == 0)
+        return g_strdup("");
+    return g_strdup(text);
+}
 
-	patch = GTK_BIN(button)->child;
-
-	style = gtk_style_copy(GTK_WIDGET(patch)->style);
-	style->bg[GTK_STATE_NORMAL].red = colour->red;
-	style->bg[GTK_STATE_NORMAL].green = colour->green;
-	style->bg[GTK_STATE_NORMAL].blue = colour->blue;
-	gtk_widget_set_style(patch, style);
-	g_object_unref(G_OBJECT(style));
-
-	if (GTK_WIDGET_REALIZED(patch))
-		gdk_window_clear(patch->window);
+static GList *build_font(Option *option, xmlNode *node, guchar *label)
+{
+    GtkWidget *hbox, *label_widget, *font_label;
+    
+    g_return_val_if_fail(option != NULL, NULL);
+    
+    hbox = gtk_hbox_new(FALSE, 4);
+    
+    label_widget = gtk_label_new(_(label));
+    gtk_misc_set_alignment(GTK_MISC(label_widget), 1.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(hbox), label_widget, TRUE, TRUE, 0);
+    
+    /* Just show the current font as text - no picker */
+    font_label = gtk_label_new(option->value[0] ? (gchar *)option->value : _("(default)"));
+    gtk_box_pack_start(GTK_BOX(hbox), font_label, FALSE, TRUE, 0);
+    
+    option->widget = font_label;
+    option->update_widget = update_font_label;
+    option->read_widget = read_font_label;
+    
+    return g_list_append(NULL, hbox);
 }
 
 static void load_options(xmlDoc *doc)

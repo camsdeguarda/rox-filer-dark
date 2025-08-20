@@ -376,12 +376,10 @@ static void details_get_value(GtkTreeModel *tree_model,
 		case COL_TYPE:
 			g_value_init(value, G_TYPE_STRING);
 			if(o_display_show_full_type.int_value)
-				g_value_set_string(value, 
-						   item->flags & ITEM_FLAG_APPDIR? "Application" :
+				g_value_set_string(value,
 						   mime_type_comment(item->mime_type));
 			else
-				g_value_set_string(value, 
-						   item->flags & ITEM_FLAG_APPDIR? "App" :
+				g_value_set_string(value,
 						   S_ISDIR(m) ? "Dir" :
 						   S_ISCHR(m) ? "Char" :
 						   S_ISBLK(m) ? "Blck" :

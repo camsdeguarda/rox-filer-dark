@@ -73,8 +73,7 @@ XMLwrapper *appinfo_get(const gchar *app_dir, DirItem *item)
 	guchar	*tmp;
 
 	/* Is it even an application directory? */
-	if (item->base_type != TYPE_DIRECTORY ||
-			!(item->flags & ITEM_FLAG_APPDIR))
+	if (item->base_type != TYPE_DIRECTORY)
 		return NULL;	/* Not an application */
 
 	tmp = g_strconcat(app_dir, "/" APPINFO_FILENAME, NULL);

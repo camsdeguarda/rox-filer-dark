@@ -93,8 +93,6 @@ static void options_changed(void);
 static char *get_action_save_path(GtkWidget *dialog);
 static MIME_type *get_mime_type(const gchar *type_name, gboolean can_create);
 static gboolean remove_handler_with_confirm(const guchar *path);
-static void set_icon_theme(void);
-static GList *build_icon_theme(Option *option, xmlNode *node, guchar *label);
 
 /* Hash of all allocated MIME types, indexed by "media/subtype".
  * MIME_type structs are never freed; this table prevents memory leaks
@@ -118,11 +116,8 @@ MIME_type *inode_unknown;
 MIME_type *inode_door;
 
 static Option o_display_colour_types;
-static Option o_icon_theme;
-
+/* Icon theme is now hard-coded to ROX theme only */
 static GtkIconTheme *icon_theme = NULL;
-static GtkIconTheme *rox_theme = NULL;
-static GtkIconTheme *gnome_theme = NULL;
 
 void type_init(void)
 {
@@ -147,17 +142,16 @@ void type_init(void)
 	inode_unknown = get_mime_type("inode/unknown", TRUE);
 	inode_door = get_mime_type("inode/door", TRUE);
 
-	option_add_string(&o_icon_theme, "icon_theme", "ROX");
-	option_add_int(&o_display_colour_types, "display_colour_types", TRUE);
-	option_register_widget("icon-theme-chooser", build_icon_theme);
-	
+	/* Hard-coded to use only ROX theme */
+    icon_theme = gtk_icon_theme_new();
+    gtk_icon_theme_set_custom_theme(icon_theme, "ROX");
+    option_add_int(&o_display_colour_types, "display_colour_types", TRUE);
+
 	for (i = 0; i < NUM_TYPE_COLOURS; i++)
 		option_add_string(&o_type_colours[i],
 				  opt_type_colours[i][0],
 				  opt_type_colours[i][1]);
 	alloc_type_colours();
-
-	set_icon_theme();
 
 	option_add_notify(options_changed);
 }
@@ -217,8 +211,6 @@ const char *basetype_name(DirItem *item)
 		return _("Sym link");
 	else if (item->flags & ITEM_FLAG_MOUNT_POINT)
 		return _("Mount point");
-	else if (item->flags & ITEM_FLAG_APPDIR)
-		return _("App dir");
 
 	switch (item->base_type)
 	{
@@ -382,23 +374,6 @@ MIME_type *mime_type_lookup(const char *type)
 	return get_mime_type(type, TRUE);
 }
 
-static void init_aux_theme(GtkIconTheme **ptheme, const char *name)
-{
-	if (*ptheme)
-		return;
-	*ptheme = gtk_icon_theme_new();
-	gtk_icon_theme_set_custom_theme(*ptheme, name);
-}
-
-inline static void init_rox_theme(void)
-{
-	init_aux_theme(&rox_theme, "ROX");
-}
-
-inline static void init_gnome_theme(void)
-{
-	init_aux_theme(&gnome_theme, "gnome");
-}
 
 /* We don't want ROX to override configured theme so try all possibilities
  * in icon_theme first */
@@ -454,88 +429,79 @@ static GtkIconInfo *mime_type_lookup_icon_info(GtkIconTheme *theme,
  */
 MaskedPixmap *type_to_icon(MIME_type *type)
 {
-	GtkIconInfo *full;
-	char	*type_name, *path;
-	time_t	now;
+    GtkIconInfo *full;
+    char *type_name, *path;
+    time_t now;
 
-	if (type == NULL)
-	{
-		g_object_ref(im_unknown);
-		return im_unknown;
-	}
+    if (type == NULL)
+    {
+        g_object_ref(im_unknown);
+        return im_unknown;
+    }
 
-	now = time(NULL);
-	/* Already got an image? */
-	if (type->image)
-	{
-		/* Yes - don't recheck too often */
-		if (abs(now - type->image_time) < 2)
-		{
-			g_object_ref(type->image);
-			return type->image;
-		}
-		g_object_unref(type->image);
-		type->image = NULL;
-	}
+    now = time(NULL);
+    /* Already got an image? */
+    if (type->image)
+    {
+        /* Yes - don't recheck too often */
+        if (abs(now - type->image_time) < 2)
+        {
+            g_object_ref(type->image);
+            return type->image;
+        }
+        g_object_unref(type->image);
+        type->image = NULL;
+    }
 
 again:
-	type_name = g_strconcat(type->media_type, "_", type->subtype,
-				".png", NULL);
-	path = choices_find_xdg_path_load(type_name, "MIME-icons", SITE);
-	g_free(type_name);
-	if (path)
-	{
-		type->image = g_fscache_lookup(pixmap_cache, path);
-		g_free(path);
-	}
+    type_name = g_strconcat(type->media_type, "_", type->subtype,
+                ".png", NULL);
+    path = choices_find_xdg_path_load(type_name, "MIME-icons", SITE);
+    g_free(type_name);
+    if (path)
+    {
+        type->image = g_fscache_lookup(pixmap_cache, path);
+        g_free(path);
+    }
 
-	if (type->image)
-		goto out;
+    if (type->image)
+        goto out;
 
-	full = mime_type_lookup_icon_info(icon_theme, type);
-	if (!full && icon_theme != rox_theme)
-	{
-		init_rox_theme();
-		full = mime_type_lookup_icon_info(rox_theme, type);
-	}
-	if (!full && icon_theme != gnome_theme)
-	{
-		init_gnome_theme();
-		full = mime_type_lookup_icon_info(gnome_theme, type);
-	}
-	if (!full && type == inode_mountpoint)
-	{
-		/* Try to use the inode/directory icon for inode/mount-point */
-		type = inode_directory;
-		goto again;
-	}
-	if (full)
-	{
-		const char *icon_path;
-		/* Get the actual icon through our cache, not through GTK, because
-		 * GTK doesn't cache icons.
-		 */
-		icon_path = gtk_icon_info_get_filename(full);
-		if (icon_path != NULL)
-			type->image = g_fscache_lookup(pixmap_cache, icon_path);
-		/* else shouldn't happen, because we didn't use
-		 * GTK_ICON_LOOKUP_USE_BUILTIN.
-		 */
-		gtk_icon_info_free(full);
-	}
+    /* Only use hardcoded ROX theme */
+    if (!icon_theme) {
+        icon_theme = gtk_icon_theme_new();
+        gtk_icon_theme_set_custom_theme(icon_theme, "ROX");
+    }
+    
+    full = mime_type_lookup_icon_info(icon_theme, type);
+    
+    if (!full && type == inode_mountpoint)
+    {
+        /* Try to use the inode/directory icon for inode/mount-point */
+        type = inode_directory;
+        goto again;
+    }
+    
+    if (full)
+    {
+        const char *icon_path;
+        icon_path = gtk_icon_info_get_filename(full);
+        if (icon_path != NULL)
+            type->image = g_fscache_lookup(pixmap_cache, icon_path);
+        gtk_icon_info_free(full);
+    }
 
 out:
-	if (!type->image)
-	{
-		/* One ref from the type structure, one returned */
-		type->image = im_unknown;
-		g_object_ref(im_unknown);
-	}
+    if (!type->image)
+    {
+        type->image = im_unknown;
+        g_object_ref(im_unknown);
+    }
 
-	type->image_time = now;
-	
-	g_object_ref(type->image);
-	return type->image;
+    type->image_time = now;
+    
+    g_object_ref(type->image);
+    return type->image;
 }
 
 GdkAtom type_to_atom(MIME_type *type)
@@ -716,7 +682,7 @@ static void drag_app_dropped(GtkWidget	*drop_box,
 
 	item = diritem_new("");
 	diritem_restat(app, item, NULL);
-	if (item->flags & ITEM_FLAG_APPDIR || EXECUTABLE_FILE(item))
+	if (EXECUTABLE_FILE(item))
 	{
 		guchar	*path;
 
@@ -1145,12 +1111,6 @@ static void options_changed(void)
 #endif
 
 	alloc_type_colours();
-	if (o_icon_theme.has_changed)
-	{
-		set_icon_theme();
-		g_hash_table_foreach(type_hash, expire_timer, NULL);
-		full_refresh();
-	}
 }
 
 /* Return a pointer to a (static) colour for this item. If colouring is
@@ -1165,8 +1125,6 @@ GdkColor *type_get_colour(DirItem *item, GdkColor *normal)
 
 	if (EXECUTABLE_FILE(item))
 		type = TYPE_EXEC;
-	else if (item->flags & ITEM_FLAG_APPDIR)
-		type = TYPE_APPDIR;
 
 	g_return_val_if_fail(type >= 0 && type < NUM_TYPE_COLOURS, normal);
 
@@ -1266,240 +1224,24 @@ const char *mime_type_comment(MIME_type *type)
 	return type->comment;
 }
 
-static void unref_icon_theme(void)
-{
-	if (icon_theme && icon_theme != rox_theme && icon_theme != gnome_theme)
-		g_object_unref(icon_theme);
-}
-
-static void set_icon_theme(void)
-{
-	struct stat info;
-	char *icon_home;
-	const char *theme_dir;
-	const char *theme_name = o_icon_theme.value;
-
-	if (!theme_name || !*theme_name)
-		theme_name = "ROX";
-
-	if (!strcmp(theme_name, "ROX"))
-	{
-		unref_icon_theme();
-		init_rox_theme();
-		icon_theme = rox_theme;
-	}
-	else if (!strcmp(theme_name, "gnome"))
-	{
-		unref_icon_theme();
-		init_gnome_theme();
-		icon_theme = gnome_theme;
-	}
-	else
-	{
-		if (icon_theme == rox_theme || icon_theme == gnome_theme)
-			icon_theme = gtk_icon_theme_new();
-		gtk_icon_theme_set_custom_theme(icon_theme, theme_name);
-	}
-
-	/* Ensure the ROX theme exists. */
-
-	icon_home = g_build_filename(home_dir, ".icons", "ROX", NULL);
-	if (stat(icon_home, &info) == 0)
-		return;	/* Already exists */
-
-	/* First, create the .icons directory */
-	theme_dir = make_path(home_dir, ".icons");
-	if (!file_exists(theme_dir))
-		mkdir(theme_dir, 0755);
-
-	if (lstat(icon_home, &info) == 0)
-	{
-		/* Probably a broken symlink, then. Remove it. */
-		if (unlink(icon_home))
-			g_warning("Error removing broken symlink %s: %s", icon_home, g_strerror(errno));
-		else
-			g_warning("Removed broken symlink %s", icon_home);
-	}
-
-	if (symlink(make_path(app_dir, "ROX"), icon_home))
-	{
-		delayed_error(_("Failed to create symlink '%s':\n%s"), icon_home, g_strerror(errno));
-		open_to_show(icon_home);
-	}
-	g_free(icon_home);
-
-	gtk_icon_theme_rescan_if_needed(icon_theme);
-}
-
-static guchar *read_theme(Option *option)
-{
-	GtkOptionMenu *om = GTK_OPTION_MENU(option->widget);
-	GtkLabel *item;
-
-	item = GTK_LABEL(GTK_BIN(om)->child);
-
-	g_return_val_if_fail(item != NULL, g_strdup("ROX"));
-
-	return g_strdup(gtk_label_get_text(item));
-}
-
-static void update_theme(Option *option)
-{
-	GtkOptionMenu *om = GTK_OPTION_MENU(option->widget);
-	GtkWidget *menu;
-	GList *kids, *next;
-	int i = 0;
-
-	menu = gtk_option_menu_get_menu(om);
-
-	kids = gtk_container_get_children(GTK_CONTAINER(menu));
-	for (next = kids; next; next = next->next, i++)
-	{
-		GtkLabel *item = GTK_LABEL(GTK_BIN(next->data)->child);
-		const gchar *label;
-
-		/* The label actually moves from the menu!! */
-		if (!item)
-			item = GTK_LABEL(GTK_BIN(om)->child);
-
-		label = gtk_label_get_text(item);
-
-		g_return_if_fail(label != NULL);
-
-		if (strcmp(label, option->value) == 0)
-			break;
-	}
-	g_list_free(kids);
-	
-	if (next)
-		gtk_option_menu_set_history(om, i);
-	else
-		g_warning("Theme '%s' not found", option->value);
-}
-
-static void add_themes_from_dir(GPtrArray *names, const char *dir)
-{
-	GPtrArray *list;
-	int i;
-
-	if (access(dir, F_OK) != 0)
-		return;
-
-	list = list_dir(dir);
-	g_return_if_fail(list != NULL);
-
-	for (i = 0; i < list->len; i++)
-	{
-		char *index_path;
-
-		index_path = g_build_filename(dir, list->pdata[i],
-						"index.theme", NULL);
-		
-		if (access(index_path, F_OK) == 0)
-			g_ptr_array_add(names, list->pdata[i]);
-		else
-			g_free(list->pdata[i]);
-
-		g_free(index_path);
-	}
-
-	g_ptr_array_free(list, TRUE);
-}
-
-static GList *build_icon_theme(Option *option, xmlNode *node, guchar *label)
-{
-	GtkWidget *button, *menu, *hbox;
-	GPtrArray *names;
-	gchar **theme_dirs = NULL;
-	gint n_dirs = 0;
-	int i;
-
-	g_return_val_if_fail(option != NULL, NULL);
-	g_return_val_if_fail(label != NULL, NULL);
-
-	hbox = gtk_hbox_new(FALSE, 4);
-
-	gtk_box_pack_start(GTK_BOX(hbox), gtk_label_new(_(label)),
-				FALSE, TRUE, 0);
-
-	button = gtk_option_menu_new();
-	gtk_box_pack_start(GTK_BOX(hbox), button, TRUE, TRUE, 0);
-
-	menu = gtk_menu_new();
-	gtk_option_menu_set_menu(GTK_OPTION_MENU(button), menu);
-
-	gtk_icon_theme_get_search_path(icon_theme, &theme_dirs, &n_dirs);
-	names = g_ptr_array_new();
-	for (i = 0; i < n_dirs; i++)
-		add_themes_from_dir(names, theme_dirs[i]);
-	g_strfreev(theme_dirs);
-
-	g_ptr_array_sort(names, strcmp2);
-
-	for (i = 0; i < names->len; i++)
-	{
-		GtkWidget *item;
-		char *name = names->pdata[i];
-
-		item = gtk_menu_item_new_with_label(name);
-		gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
-		gtk_widget_show_all(item);
-
-		g_free(name);
-	}
-
-	g_ptr_array_free(names, TRUE);
-
-	option->update_widget = update_theme;
-	option->read_widget = read_theme;
-	option->widget = button;
-
-	gtk_signal_connect_object(GTK_OBJECT(button), "changed",
-			GTK_SIGNAL_FUNC(option_check_widget),
-			(GtkObject *) option);
-
-	return g_list_append(NULL, hbox);
-}
 
 GtkIconInfo *theme_lookup_icon(const gchar *icon_name, gint size,
 		GtkIconLookupFlags flags)
 {
-	GtkIconInfo *result = gtk_icon_theme_lookup_icon(icon_theme,
-			icon_name, size, flags);
-
-	if (!result && icon_theme != rox_theme)
-	{
-		init_rox_theme();
-		result = gtk_icon_theme_lookup_icon(rox_theme,
-			icon_name, size, flags);
-	}
-	if (!result && icon_theme != gnome_theme)
-	{
-		init_gnome_theme();
-		result = gtk_icon_theme_lookup_icon(gnome_theme,
-			icon_name, size, flags);
-	}
-	return result;
+    if (!icon_theme) {
+        icon_theme = gtk_icon_theme_new();
+        gtk_icon_theme_set_custom_theme(icon_theme, "ROX");
+    }
+    return gtk_icon_theme_lookup_icon(icon_theme, icon_name, size, flags);
 }
 
 GdkPixbuf *theme_load_icon(const gchar *icon_name, gint size,
 		GtkIconLookupFlags flags, GError **perror)
 {
-	GdkPixbuf *result = gtk_icon_theme_load_icon(icon_theme,
-			icon_name, size, flags, NULL);
-
-	if (!result && icon_theme != gnome_theme)
-	{
-		init_gnome_theme();
-		result = gtk_icon_theme_load_icon(gnome_theme,
-			icon_name, size, flags, NULL);
-	}
-	if (!result && icon_theme != rox_theme)
-	{
-		init_rox_theme();
-		result = gtk_icon_theme_load_icon(rox_theme,
-			icon_name, size, flags, perror);
-	}
-	return result;
+    if (!icon_theme) {
+        icon_theme = gtk_icon_theme_new();
+        gtk_icon_theme_set_custom_theme(icon_theme, "ROX");
+    }
+    return gtk_icon_theme_load_icon(icon_theme, icon_name, size, flags, perror);
 }
 

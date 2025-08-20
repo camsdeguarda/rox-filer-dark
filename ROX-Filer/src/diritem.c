@@ -22,7 +22,7 @@
 /* Don't load icons larger than 400K (this is rather excessive, basically
  * we just want to stop people crashing the filer with huge icons).
  */
-#define MAX_ICON_SIZE (400 * 1024)
+//#define MAX_ICON_SIZE (400 * 1024)
 
 #include "config.h"
 
@@ -263,94 +263,11 @@ void _diritem_get_image(DirItem *item)
 static void examine_dir(const guchar *path, DirItem *item,
 			struct stat *link_target)
 {
-	struct stat info;
-	static GString *tmp = NULL;
-	uid_t uid = link_target->st_uid;
+    check_globicon(path, item);
 
-	if (!tmp)
-		tmp = g_string_new(NULL);
-
-	check_globicon(path, item);
-
-	if (item->flags & ITEM_FLAG_MOUNT_POINT)
-	{
-		item->mime_type = inode_mountpoint;
-		return;		/* Try to avoid automounter problems */
-	}
-
-	if (link_target->st_mode & S_IWOTH)
-		return;		/* Don't trust world-writable dirs */
-
-	/* Finding the icon:
-	 *
-	 * - If it contains a .DirIcon then that's the icon
-	 * - If it contains an AppRun then it's an application
-	 * - If it contains an AppRun but no .DirIcon then try to
-	 *   use AppIcon.xpm as the icon.
-	 *
-	 * .DirIcon and AppRun must have the same owner as the
-	 * directory itself, to prevent abuse of /tmp, etc.
-	 * For symlinks, we want the symlink's owner.
-	 */
-
-	g_string_printf(tmp, "%s/.DirIcon", path);
-
-	if (item->_image)
-		goto no_diricon;	/* Already got an icon */
-
-	if (mc_lstat(tmp->str, &info) != 0 || info.st_uid != uid)
-		goto no_diricon;	/* Missing, or wrong owner */
-
-	if (S_ISLNK(info.st_mode) && mc_stat(tmp->str, &info) != 0)
-		goto no_diricon;	/* Bad symlink */
-
-	if (info.st_size > MAX_ICON_SIZE || !S_ISREG(info.st_mode))
-		goto no_diricon;	/* Too big, or non-regular file */
-
-	/* Try to load image; may still get NULL... */
-	item->_image = g_fscache_lookup(pixmap_cache, tmp->str);
-
-no_diricon:
-
-	/* Try to find AppRun... */
-	g_string_truncate(tmp, tmp->len - 8);
-	g_string_append(tmp, "AppRun");
-
-	if (mc_lstat(tmp->str, &info) != 0 || info.st_uid != uid)
-		goto out;	/* Missing, or wrong owner */
-		
-	if (!(info.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
-		goto out;	/* Not executable */
-
-	item->flags |= ITEM_FLAG_APPDIR;
-
-	/* Try to load AppIcon.xpm... */
-
-	if (item->_image)
-		goto out;	/* Already got an icon */
-
-	g_string_truncate(tmp, tmp->len - 3);
-	g_string_append(tmp, "Icon.xpm");
-
-	/* Note: since AppRun is valid we don't need to check AppIcon.xpm
-	 *	 so carefully.
-	 */
-
-	if (mc_stat(tmp->str, &info) != 0)
-		goto out;	/* Missing, or broken symlink */
-
-	if (info.st_size > MAX_ICON_SIZE || !S_ISREG(info.st_mode))
-		goto out;	/* Too big, or non-regular file */
-
-	/* Try to load image; may still get NULL... */
-	item->_image = g_fscache_lookup(pixmap_cache, tmp->str);
-
-out:
-
-	if ((item->flags & ITEM_FLAG_APPDIR) && !item->_image)
-	{
-		/* This is an application without an icon */
-		item->_image = im_appdir;
-		g_object_ref(item->_image);
-	}
+    if (item->flags & ITEM_FLAG_MOUNT_POINT)
+    {
+        item->mime_type = inode_mountpoint;
+        return;		/* Try to avoid automounter problems */
+    }
 }
