@@ -55,7 +55,6 @@
 #define SET_MEDIA 2
 #define SET_TYPE 1
 #define SET_PATH 0		/* Store in globicons */
-#define SET_COPY 3		/* Create .DirIcon */
 
 static GHashTable *glob_icons = NULL; /* Pathname -> Icon pathname */
 
@@ -157,17 +156,6 @@ void check_globicon(const guchar *path, DirItem *item)
 		item->_image = g_fscache_lookup(pixmap_cache, gi);
 }
 
-static gboolean create_diricon(const guchar *filepath, const guchar *iconpath)
-{
-	if (!convert_to_png(iconpath, make_path(filepath, ".DirIcon")))
-		return FALSE;
-
-	dir_check_this(filepath);
-	icons_may_update(filepath);
-
-	return TRUE;
-}
-
 /* Add a globicon mapping for the given file to the given icon path */
 static gboolean set_icon_path(const guchar *filepath, const guchar *iconpath)
 {
@@ -220,32 +208,6 @@ static void clear_icon(DropBox *drop_box, GObject *dialog)
 	{
 		delete_globicon(pathname);
 	}
-	else
-	{
-		const guchar *path;
-		guchar *tmp;
-		DropBox *drop_box;
-
-		drop_box = g_object_get_data(G_OBJECT(dialog), "rox-dropbox");
-		g_return_if_fail(drop_box != NULL);
-
-		path = drop_box_get_path(drop_box);
-		g_return_if_fail(path != NULL);
-
-		tmp = g_strdup_printf(_("Really delete icon '%s'?"), path);
-		if (confirm(tmp, GTK_STOCK_DELETE, NULL))
-		{
-			if (unlink(path))
-				delayed_error(_("Can't delete '%s':\n%s"),
-						path, g_strerror(errno));
-			else
-			{
-				dir_check_this(pathname);
-				icons_may_update(pathname);
-			}
-		}
-		g_free(tmp);
-	}
 
 	full_refresh();
 	radios_changed(g_object_get_data(dialog, "radios"), dialog);
@@ -256,7 +218,6 @@ static void clear_icon(DropBox *drop_box, GObject *dialog)
  */
 void icon_set_handler_dialog(DirItem *item, const guchar *path)
 {
-	struct stat	info;
 	GtkDialog	*dialog;
 	GtkWidget	*frame;
 	Radios		*radios;
@@ -299,22 +260,6 @@ void icon_set_handler_dialog(DirItem *item, const guchar *path)
 			_("Only for the file `%s'"), path);
 
 	radios_set_value(radios, SET_PATH);
-
-	/* If it's a directory, offer to create a .DirIcon */
-	if (mc_stat(path, &info) == 0 && S_ISDIR(info.st_mode))
-	{
-		radios_add(radios,
-			_("Copy the image inside the directory, as "
-			"a hidden file called '.DirIcon'. "
-			"All users will then see the "
-			"icon, and you can move the directory around safely. "
-			"This is usually the best option if you can write to "
-			"the directory."), SET_COPY,
-			_("Copy image into directory"));
-		if (access(path, W_OK) == 0)
-			radios_set_value(radios, SET_COPY);
-	}
-
 
 	frame = drop_box_new(_("Drop an icon file here"));
 	g_object_set_data(G_OBJECT(dialog), "rox-dropbox", frame);
@@ -392,16 +337,6 @@ static void radios_changed(Radios *radios, gpointer data)
 			const char	*gi;
 			gi = g_hash_table_lookup(glob_icons, path);
 			drop_box_set_path(drop_box, gi);
-			break;
-		}
-		case SET_COPY:
-		{
-			const char *diricon;
-			diricon = make_path(path, ".DirIcon");
-			if (file_exists(diricon))
-				drop_box_set_path(drop_box, diricon);
-			else
-				drop_box_set_path(drop_box, NULL);
 			break;
 		}
 		default:
@@ -537,11 +472,6 @@ static void do_set_icon(GtkWidget *dialog, const gchar *icon)
 	if (op == SET_PATH)
 	{
 		if (!set_icon_path(path, icon))
-			return;
-	}
-	else if (op == SET_COPY)
-	{
-		if (!create_diricon(path, icon))
 			return;
 	}
 	else
